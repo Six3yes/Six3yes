@@ -6,6 +6,7 @@ from datetime import datetime
 from flask import Flask, jsonify
 import threading
 import logging
+import atexit
 
 app = Flask(__name__)
 
@@ -13,7 +14,6 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# توکن از متغیر محیطی
 TOKEN = os.environ.get("RUBIKA_TOKEN", "FBICI0TARGDLXTXZUBLYODAGLEPQXKRDDQPJWZDIHSVKSEDBOKBVVPCNWPUTILSF")
 BASE_URL = f"https://botapi.rubika.ir/v3/{TOKEN}"
 
@@ -27,55 +27,24 @@ RESPONSES = {
 4️⃣ مالک
 
 💡 فقط عدد گزینه رو بفرست.""",
-    "option1": """⏳ **زمان‌بندی دقیق ارائه ربات:**
-
-🔴 **تاریخ نهایی ارائه: یک ماه دیگر** (حداکثر ۳۰ روز)
-
-📌 **دلیل این زمان‌بندی:** تیم سازنده Six3yes در حال حاضر در شرایط خاصی قرار دارد و اعضای اصلی درگیر مسائل شخصی و تحصیلی هستند. با این حال، کیفیت ربات برای ما از سرعت مهم‌تر است.
-
-✨ **تعهد ما:** در این یک ماه، ربات را با بیش از ۱۵ قابلیت اصلی و تست کامل ارائه خواهیم داد.""",
-
-    "option2": """🤖 **ویژگی‌های تأیید شده ربات Six3yes:**
-
-🛡️ **۱. مدیریت هوشمند گروه:**
-   • سیستم ضد لینک و ضد اسپم پیشرفته
-   • دسترسی‌های سطح‌بندی شده
-
-🧠 **۲. هوش مصنوعی اختصاصی:**
-   • اتصال به موتورهای AI پیشرفته
-   • پاسخ‌های مطلوب، سرگرم‌کننده و آموزنده
-
-🎮 **۳. مجموعه بازی‌های ساده و جذاب:**
-   • بازی تاس (Dice)
-   • حدس عدد
-   • سنگ‌کاغذ‌قیچی""",
-
-    "option3": """⚠️ **هشدار! محتوای زیر ممکن است ترسناک باشد!**
-
-😱 **ارور کیست؟** فردی بسیار خطرناک و مرموز که ادعا می‌کند در حرفه "هکیر"ی (نه هکر، حتماً با "ر" بخوانید!) از همه بهتر است!
-
-🎭 **حقیقت ماجرا:** در واقعیت، ارور معمولاً مشغول مسخره کردن دوستانش است و تخصص اصلی‌اش ایجاد باگ‌های عجیب در کدهاست!""",
-
-    "option4": """👑 **مالک و سازنده اصلی:**
-
-• **نام:** آرین
-• **شماره تماس:** `+98 939 625 5842`
-• **مسئولیت:** مدیر پروژه، تصمیم‌گیر نهایی، عاشق فناوری
-
-🎯 **درباره مالک:** آرین فردی با انگیزه و پرتلاش است که این پروژه را با عشق و صرف زمان شخصی راه‌اندازی کرده."""
+    "option1": """⏳ **زمان‌بندی دقیق ارائه ربات:**\n🔴 **تاریخ نهایی: یک ماه دیگر**""",
+    "option2": """🤖 **ویژگی‌های ربات:**\n🛡️ مدیریت گروه\n🧠 هوش مصنوعی\n🎮 بازی‌ها\n🎵 ویس‌کال""",
+    "option3": """⚠️ **هشدار!**\n😱 **ارور:** یک 'هکیر' خیالی!""",
+    "option4": """👑 **مالک:**\n• **نام:** آرین\n• **شماره:** `+98 939 625 5842`"""
 }
 
 class Six3yesBot:
     def __init__(self):
         self.is_running = False
-        logger.info("🤖 ربات Six3yes راه‌اندازی شد")
+        self.polling_thread = None
+        logger.info("🤖 شیء ربات Six3yes ساخته شد")
     
     def send_message(self, chat_id, text):
         try:
             payload = {"chat_id": chat_id, "text": text[:4000]}
             response = requests.post(f"{BASE_URL}/sendMessage", json=payload, timeout=10)
             if response.status_code == 200:
-                logger.info(f"✅ پیام ارسال شد به {chat_id}")
+                logger.info(f"✅ پیام ارسال شد به {chat_id[:8]}...")
                 return True
             else:
                 logger.error(f"❌ خطا در ارسال پیام: {response.status_code}")
@@ -100,13 +69,9 @@ class Six3yesBot:
         else:
             return "🤖 لطفاً عدد ۱ تا ۴ را انتخاب کنید یا /start را بزنید."
     
-    def run_polling(self):
-        if self.is_running:
-            logger.warning("⚠️ ربات در حال اجراست!")
-            return
-        
-        self.is_running = True
-        logger.info("📡 شروع دریافت پیام‌ها...")
+    def polling_loop(self):
+        """حلقه اصلی دریافت پیام‌ها"""
+        logger.info("📡 حلقه دریافت پیام‌ها (polling_loop) شروع شد")
         last_update_id = 0
         
         while self.is_running:
@@ -131,72 +96,80 @@ class Six3yesBot:
                                     chat_id = update.get("chat_id")
                                     
                                     if text and chat_id:
-                                        logger.info(f"📩 پیام از {chat_id}: {text[:30]}...")
+                                        logger.info(f"📩 پیام از {chat_id[:8]}...: {text[:30]}")
                                         reply = self.process_text(text)
                                         self.send_message(chat_id, reply)
+                else:
+                    logger.error(f"خطا از سرور روبیکا: {response.status_code}")
                 
-                time.sleep(2)
+                time.sleep(2)  # تاخیر بین درخواست‌ها
                 
+            except requests.exceptions.RequestException as e:
+                logger.error(f"خطای شبکه در polling: {e}")
+                time.sleep(5)
             except Exception as e:
-                logger.error(f"⚠️ خطا در polling: {e}")
+                logger.error(f"خطای غیرمنتظره در polling: {e}")
                 time.sleep(5)
     
-    def stop(self):
+    def start_polling(self):
+        """شروع دریافت پیام‌ها در یک ترد جداگانه"""
+        if self.is_running:
+            logger.warning("⚠️ ربات در حال حاضر در حال اجراست!")
+            return
+        
+        self.is_running = True
+        self.polling_thread = threading.Thread(target=self.polling_loop, daemon=True)
+        self.polling_thread.start()
+        logger.info("🚀 ربات شروع به کار کرد و در حال دریافت پیام‌هاست...")
+    
+    def stop_polling(self):
+        """توقف ربات"""
         self.is_running = False
-        logger.info("🛑 ربات متوقف شد")
+        if self.polling_thread:
+            self.polling_thread.join(timeout=5)
+        logger.info("🛑 ربات متوقف شد.")
 
 # ایجاد نمونه ربات
 bot = Six3yesBot()
 
 @app.route('/')
 def home():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Six3yes Bot</title>
-        <meta charset="utf-8">
-        <style>
-            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f0f0f0; }
-            .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-            h1 { color: #4a4a4a; }
-            .status { color: green; font-weight: bold; }
-            .bot-name { color: #3498db; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🤖 ربات <span class="bot-name">Six3yes</span></h1>
-            <p class="status">✅ فعال و آنلاین</p>
-            <p>ربات در حال اجراست و پیام‌ها را پردازش می‌کند.</p>
-            <p>برای استفاده، در روبیکا به ربات پیام دهید.</p>
-            <hr>
-            <p><small>ساخته شده با ❤️ توسط تیم Six3yes</small></p>
-        </div>
-    </body>
-    </html>
-    """
+    return "🤖 ربات Six3yes فعال است! /start را در روبیکا امتحان کنید."
 
 @app.route('/health')
 def health():
     return jsonify({"status": "healthy", "bot": "running"})
 
-@app.route('/start-bot', methods=['POST'])
-def start_bot_route():
-    thread = threading.Thread(target=bot.run_polling, daemon=True)
-    thread.start()
-    return jsonify({"message": "ربات شروع به کار کرد"})
+@app.route('/start-bot')
+def start_bot():
+    """این endpoint ربات را راه‌اندازی می‌کند (مفید برای بیدار کردن از خواب)"""
+    bot.start_polling()
+    return jsonify({"message": "ربات راه‌اندازی شد"})
 
-# شروع ربات در background
+@app.route('/stop-bot')
+def stop_bot():
+    """این endpoint ربات را متوقف می‌کند"""
+    bot.stop_polling()
+    return jsonify({"message": "ربات متوقف شد"})
+
+# ================== راه‌اندازی اصلی ==================
+def start_bot_on_load():
+    """این تابع وقتی برنامه بارگذاری می‌شود اجرا می‌شود"""
+    logger.info("🔧 برنامه بارگذاری شد، در حال راه‌اندازی ربات...")
+    time.sleep(2)  # کمی تاخیر برای اطمینان از بارگذاری کامل
+    bot.start_polling()
+
+# ثبت تابع برای اجرا هنگام بارگذاری
+@app.before_first_request
+def before_first_request():
+    """این تابع قبل از اولین درخواست به برنامه اجرا می‌شود"""
+    start_bot_on_load()
+
+# همچنین هنگام شروع برنامه هم اجرا می‌شود
 if __name__ == "__main__":
-    # شروع ربات در یک thread جداگانه
-    bot_thread = threading.Thread(target=bot.run_polling, daemon=True)
-    bot_thread.start()
-    
-    # اجرای Flask
+    start_bot_on_load()
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
 else:
     # برای زمانی که با gunicorn اجرا می‌شود
-    bot_thread = threading.Thread(target=bot.run_polling, daemon=True)
-    bot_thread.start()
+    start_bot_on_load()
