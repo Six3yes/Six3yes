@@ -6,135 +6,111 @@ from datetime import datetime
 from flask import Flask, jsonify
 import threading
 import logging
-import atexit
 
 app = Flask(__name__)
-
-# تنظیم لاگ
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ================== تنظیمات ==================
 TOKEN = os.environ.get("RUBIKA_TOKEN", "FBICI0TARGDLXTXZUBLYODAGLEPQXKRDDQPJWZDIHSVKSEDBOKBVVPCNWPUTILSF")
 BASE_URL = f"https://botapi.rubika.ir/v3/{TOKEN}"
 
 RESPONSES = {
-    "start": """✨ **سلام عزیز! به ربات هوشمند Six3yes خوش آمدی!** ✨
-
-👇 **برای شروع، یکی از گزینه‌های زیر را انتخاب کن:**
-1️⃣ زمان‌بندی توسعه
-2️⃣ ویژگی‌های آینده  
-3️⃣ ارور کیست؟
-4️⃣ مالک
-
-💡 فقط عدد گزینه رو بفرست.""",
-    "option1": """⏳ **زمان‌بندی دقیق ارائه ربات:**\n🔴 **تاریخ نهایی: یک ماه دیگر**""",
-    "option2": """🤖 **ویژگی‌های ربات:**\n🛡️ مدیریت گروه\n🧠 هوش مصنوعی\n🎮 بازی‌ها\n🎵 ویس‌کال""",
-    "option3": """⚠️ **هشدار!**\n😱 **ارور:** یک 'هکیر' خیالی!""",
-    "option4": """👑 **مالک:**\n• **نام:** آرین\n• **شماره:** `+98 939 625 5842`"""
+    "start": """✨ **سلام! به ربات Six3yes خوش آمدی!** ✨\n👇عدد بفرست:\n1️⃣ زمان‌بندی\n2️⃣ ویژگی‌ها\n3️⃣ ارور کیست؟\n4️⃣ مالک""",
+    "option1": """⏳ **زمان‌بندی:**\n🔴 حداکثر ۳۰ روز آینده.""",
+    "option2": """🤖 **ویژگی‌ها:**\n🛡️ مدیریت گروه\n🧠 هوش مصنوعی\n🎮 بازی‌ها""",
+    "option3": """⚠️ **ارور:** یک 'هکیر' خیالی!""",
+    "option4": """👑 **مالک:**\n• آرین\n• +98 939 625 5842"""
 }
 
+# ================== کلاس ربات ==================
 class Six3yesBot:
     def __init__(self):
         self.is_running = False
-        self.polling_thread = None
-        logger.info("🤖 شیء ربات Six3yes ساخته شد")
-    
+        self.thread = None
+        logger.info("🤖 نمونه ربات ساخته شد.")
+
     def send_message(self, chat_id, text):
         try:
             payload = {"chat_id": chat_id, "text": text[:4000]}
-            response = requests.post(f"{BASE_URL}/sendMessage", json=payload, timeout=10)
-            if response.status_code == 200:
-                logger.info(f"✅ پیام ارسال شد به {chat_id[:8]}...")
+            r = requests.post(f"{BASE_URL}/sendMessage", json=payload, timeout=10)
+            if r.status_code == 200:
+                logger.info(f"✅ ارسال به {chat_id[:8]}...")
                 return True
             else:
-                logger.error(f"❌ خطا در ارسال پیام: {response.status_code}")
+                logger.error(f"❌ خطای {r.status_code} در ارسال")
                 return False
         except Exception as e:
             logger.error(f"❌ خطا در ارسال: {e}")
             return False
-    
+
     def process_text(self, text):
         text = text.strip().lower()
-        
-        if text in ["/start", "استارت", "شروع", "start"]:
+        if text in ["/start", "start", "شروع"]:
             return RESPONSES["start"]
-        elif text in ["1", "گزینه 1", "زمان‌بندی", "زمانبندی"]:
+        elif text in ["1", "زمانبندی"]:
             return RESPONSES["option1"]
-        elif text in ["2", "گزینه 2", "ویژگی", "ویژگی ها"]:
+        elif text in ["2", "ویژگی"]:
             return RESPONSES["option2"]
-        elif text in ["3", "گزینه 3", "ارور", "ارور کیست"]:
+        elif text in ["3", "ارور"]:
             return RESPONSES["option3"]
-        elif text in ["4", "گزینه 4", "مالک", "سازنده"]:
+        elif text in ["4", "مالک"]:
             return RESPONSES["option4"]
         else:
-            return "🤖 لطفاً عدد ۱ تا ۴ را انتخاب کنید یا /start را بزنید."
-    
+            return "لطفاً عدد ۱ تا ۴ یا /start را بفرستید."
+
     def polling_loop(self):
-        """حلقه اصلی دریافت پیام‌ها"""
-        logger.info("📡 حلقه دریافت پیام‌ها (polling_loop) شروع شد")
+        logger.info("📡 حلقه دریافت پیام‌ها شروع شد.")
         last_update_id = 0
-        
         while self.is_running:
             try:
                 payload = {"start_id": last_update_id} if last_update_id > 0 else {}
-                response = requests.post(f"{BASE_URL}/getUpdates", json=payload, timeout=30)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
+                r = requests.post(f"{BASE_URL}/getUpdates", json=payload, timeout=30)
+                if r.status_code == 200:
+                    data = r.json()
                     if data.get("status") == "OK":
-                        updates = data.get("data", {}).get("updates", [])
-                        
-                        for update in updates:
+                        for update in data.get("data", {}).get("updates", []):
                             update_id = update.get("update_id", 0)
                             if update_id > last_update_id:
                                 last_update_id = update_id
-                                
                                 if update.get("type") == "NewMessage":
                                     msg = update.get("new_message", {})
                                     text = msg.get("text", "").strip()
                                     chat_id = update.get("chat_id")
-                                    
                                     if text and chat_id:
-                                        logger.info(f"📩 پیام از {chat_id[:8]}...: {text[:30]}")
+                                        logger.info(f"📩 پیام از {chat_id[:8]}...: {text[:20]}")
                                         reply = self.process_text(text)
                                         self.send_message(chat_id, reply)
-                else:
-                    logger.error(f"خطا از سرور روبیکا: {response.status_code}")
-                
-                time.sleep(2)  # تاخیر بین درخواست‌ها
-                
+                time.sleep(2)
             except requests.exceptions.RequestException as e:
-                logger.error(f"خطای شبکه در polling: {e}")
+                logger.error(f"🌐 خطای شبکه: {e}")
                 time.sleep(5)
             except Exception as e:
-                logger.error(f"خطای غیرمنتظره در polling: {e}")
+                logger.error(f"⚠️ خطای ناشناخته: {e}")
                 time.sleep(5)
-    
-    def start_polling(self):
-        """شروع دریافت پیام‌ها در یک ترد جداگانه"""
-        if self.is_running:
-            logger.warning("⚠️ ربات در حال حاضر در حال اجراست!")
-            return
-        
-        self.is_running = True
-        self.polling_thread = threading.Thread(target=self.polling_loop, daemon=True)
-        self.polling_thread.start()
-        logger.info("🚀 ربات شروع به کار کرد و در حال دریافت پیام‌هاست...")
-    
-    def stop_polling(self):
-        """توقف ربات"""
-        self.is_running = False
-        if self.polling_thread:
-            self.polling_thread.join(timeout=5)
-        logger.info("🛑 ربات متوقف شد.")
+        logger.info("🛑 حلقه دریافت متوقف شد.")
 
-# ایجاد نمونه ربات
+    def start(self):
+        if self.is_running:
+            logger.warning("⚠️ ربات از قبل در حال اجراست.")
+            return
+        self.is_running = True
+        self.thread = threading.Thread(target=self.polling_loop, daemon=True)
+        self.thread.start()
+        logger.info("🚀 ربات شروع به کار کرد.")
+
+# ================== راه‌اندازی Flask و ربات ==================
 bot = Six3yesBot()
+
+# *** تغییر اصلی اینجاست: ربات بلافاصله پس از بارگذاری ماژول شروع می‌شود ***
+logger.info("🔧 بارگذاری برنامه...")
+time.sleep(3)  # تاخیر کوتاه برای اطمینان از بارگذاری کامل
+bot.start()
+logger.info("✅ راه‌اندازی اولیه کامل شد.")
 
 @app.route('/')
 def home():
-    return "🤖 ربات Six3yes فعال است! /start را در روبیکا امتحان کنید."
+    return "ربات فعال است. /start را در روبیکا بفرستید."
 
 @app.route('/health')
 def health():
@@ -142,34 +118,10 @@ def health():
 
 @app.route('/start-bot')
 def start_bot():
-    """این endpoint ربات را راه‌اندازی می‌کند (مفید برای بیدار کردن از خواب)"""
-    bot.start_polling()
-    return jsonify({"message": "ربات راه‌اندازی شد"})
+    """اگر ربات به هر دلیلی متوقف شد، این endpoint آن را دوباره راه می‌اندازد."""
+    bot.start()
+    return jsonify({"message": "دستور شروع ارسال شد."})
 
-@app.route('/stop-bot')
-def stop_bot():
-    """این endpoint ربات را متوقف می‌کند"""
-    bot.stop_polling()
-    return jsonify({"message": "ربات متوقف شد"})
-
-# ================== راه‌اندازی اصلی ==================
-def start_bot_on_load():
-    """این تابع وقتی برنامه بارگذاری می‌شود اجرا می‌شود"""
-    logger.info("🔧 برنامه بارگذاری شد، در حال راه‌اندازی ربات...")
-    time.sleep(2)  # کمی تاخیر برای اطمینان از بارگذاری کامل
-    bot.start_polling()
-
-# ثبت تابع برای اجرا هنگام بارگذاری
-@app.before_first_request
-def before_first_request():
-    """این تابع قبل از اولین درخواست به برنامه اجرا می‌شود"""
-    start_bot_on_load()
-
-# همچنین هنگام شروع برنامه هم اجرا می‌شود
 if __name__ == "__main__":
-    start_bot_on_load()
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
-else:
-    # برای زمانی که با gunicorn اجرا می‌شود
-    start_bot_on_load()
